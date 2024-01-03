@@ -20,12 +20,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.core.view.get
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -38,10 +36,12 @@ import java.lang.Exception
 
 class MainActivity : AppCompatActivity() {
     private var drawingView :DrawingView? = null
+    // A variable for current color is picked from color pallet.
     private var myImageButtonCurrentPaint :ImageButton? = null
+
     var customProgressDialog: Dialog? = null
 
-    private var openGalleryLaucher: ActivityResultLauncher<Intent> =
+    private var openGalleryLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
             result ->
             if (result.resultCode == RESULT_OK && result.data!=null){
@@ -49,6 +49,10 @@ class MainActivity : AppCompatActivity() {
                 imageBackground.setImageURI(result.data?.data)
             }
         }
+
+    /** create an ActivityResultLauncher with MultiplePermissions since we are requesting
+     * both read and write
+     */
     private var requestGalleryPermission :ActivityResultLauncher<Array<String>> =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             permession ->
@@ -56,12 +60,15 @@ class MainActivity : AppCompatActivity() {
             val permissionsName = it.key
             val isGranted = it.value
 
+            //if permission is granted show a toast and perform operation
             if (isGranted){
                     Toast.makeText(this,"Permission granted for storage",Toast.LENGTH_SHORT).show()
                 val pickIntent = Intent(Intent.ACTION_PICK,MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-                openGalleryLaucher.launch(pickIntent)
+                openGalleryLauncher.launch(pickIntent)
                 }
             else{
+                //Displaying another toast if permission is not granted and this time focus on
+                //    Read external storage
                 if(permissionsName == Manifest.permission.READ_MEDIA_IMAGES){
                     Toast.makeText(this,"Permission denied for Storage",Toast.LENGTH_SHORT).show()
                 }
@@ -86,9 +93,11 @@ class MainActivity : AppCompatActivity() {
         brush.setOnClickListener {showBrushSizeChooserDialog() }
 
         val undo :ImageButton = findViewById(R.id.btnUndo)
+        // This is for undo recent stroke.
         undo.setOnClickListener {drawingView?.onClickUndo() }
 
         val redo :ImageButton = findViewById(R.id.btnRedo)
+        // This is for redo recent stroke.
         redo.setOnClickListener {drawingView?.onClickRedo() }
 
         val btnGallery :ImageButton = findViewById(R.id.galleryButton)
@@ -96,18 +105,26 @@ class MainActivity : AppCompatActivity() {
             galleryPermission()
         }
 
+        //reference the save button from the layout
         val btnSave: ImageButton = findViewById(R.id.save)
         btnSave.setOnClickListener {
+            //check if permission is allowed
             if(isReadStorageAllowed()){
                 showProgressBar()
+                //launch a coroutine block
                 lifecycleScope.launch {
+                    //reference the frame layout
                     val flDrawingView: FrameLayout = findViewById(R.id.drawingViewContainer)
+                    //Save the image to the device
                     saveBitMapFile(getBitMapFromView(flDrawingView))
                 }
             }
         }
 
     }
+    /**
+     * Method is used to launch the dialog to select different brush sizes.
+     */
     private fun showBrushSizeChooserDialog(){
        var  brushDialog = Dialog(this)
         brushDialog.setContentView(R.layout.dialog_brush_size)
@@ -129,30 +146,63 @@ class MainActivity : AppCompatActivity() {
         }
         brushDialog.show()
     }
+
+    /**
+     * Method is called when color is clicked from pallet_normal.
+     *
+     * @param view ImageButton on which click took place.
+     */
     fun paintClicked(view : View){
         if(view !== myImageButtonCurrentPaint){
+            // Update the color
             val imageButton = view as ImageButton
-            val colorTag = imageButton.tag.toString()
-            drawingView!!.setColor(colorTag)
-            imageButton.setImageDrawable(ContextCompat.getDrawable( this,R.drawable.pallet_selected))
+            // Here the tag is used for swaping the current color with previous color.
+            // The tag stores the selected view
 
+            val colorTag = imageButton.tag.toString()
+            // The color is set as per the selected tag here.
+            drawingView!!.setColor(colorTag)
+
+            // Swap the backgrounds for last active and currently active image button.
+            imageButton.setImageDrawable(ContextCompat.getDrawable( this,R.drawable.pallet_selected))
            myImageButtonCurrentPaint?.setImageDrawable(ContextCompat.getDrawable( this,R.drawable.pallet_normal))
 
+            //Current view is updated with selected view in the form of ImageButton.
             myImageButtonCurrentPaint = view
 
         }
     }
 
+    /**
+     * We are calling this method to check the permission status
+     */
     private fun isReadStorageAllowed(): Boolean{
+        //Getting the permission status
+        // Here the checkSelfPermission is
+        /**
+         * Determine whether <em>you</em> have been granted a particular permission.
+         *
+         * @param permission The name of the permission being checked.
+         *
+         */
         val result = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
 
+        /**
+         *
+         * @return {@link android.content.pm.PackageManager#PERMISSION_GRANTED} if you have the
+         * permission, or {@link android.content.pm.PackageManager#PERMISSION_DENIED} if not.
+         *
+         */
+        //If permission is granted returning true and If permission is not granted returning false
         return result == PackageManager.PERMISSION_GRANTED
     }
 
+    //create a method to requestStorage permission
     private fun galleryPermission(){
         try {
+            // Check if the permission was denied and show rationale
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.READ_MEDIA_IMAGES)){
-
+                //call the rationale dialog to tell the user why they need to allow permission request
                 showRationDialog(
                     title = "Drawing App",
                     message = "Kids drawing app needs permission for storage"
@@ -160,7 +210,9 @@ class MainActivity : AppCompatActivity() {
 
             }
             else{
-
+                // You can directly ask for the permission.
+                //if it has not been denied then request for permission
+                //  The registered ActivityResultCallback gets the result of this request.
                 requestGalleryPermission.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.WRITE_EXTERNAL_STORAGE))
             }
         }
@@ -170,6 +222,10 @@ class MainActivity : AppCompatActivity() {
         }
 
     }
+    /**  create rationale dialog
+     * Shows rationale dialog for displaying why the app needs permission
+     * Only shown if the user has denied the permission request previously
+     */
     private fun showRationDialog(title: String, message: String) {
         val builder: AlertDialog.Builder = AlertDialog.Builder(this)
         builder.setTitle(title)
@@ -178,21 +234,30 @@ class MainActivity : AppCompatActivity() {
         builder.create().show()
     }
 
+    /**
+     * Create bitmap from view and returns it
+     */
     private fun getBitMapFromView(view: View): Bitmap{
+        //Define a bitmap with the same size as the view.
+        // CreateBitmap : Returns a mutable bitmap with the specified width and height
         val returnedBitMap = Bitmap.createBitmap(view.width,
             view.height,Bitmap.Config.ARGB_8888)
+        //Bind a canvas to it
         val canvas = Canvas(returnedBitMap)
+        //Get the view's background
         val bgDrawable = view.background
 
         if (bgDrawable != null){
+            //has background drawable, then draw it on the canvas
             bgDrawable.draw(canvas)
         }
         else{
+            //does not have background drawable, then draw white background on the canvas
             canvas.drawColor(Color.WHITE)
         }
-
+        // draw the view on the canvas
         view.draw(canvas)
-
+        //return the bitmap
         return returnedBitMap
 
     }
@@ -202,18 +267,40 @@ class MainActivity : AppCompatActivity() {
         withContext(Dispatchers.IO){
             if (mBitmap != null){
                 try {
-                    val bytes = ByteArrayOutputStream()
-                    mBitmap.compress(Bitmap.CompressFormat.PNG,90,bytes)
+                    val bytes = ByteArrayOutputStream() // Creates a new byte array output stream.
+                    // The buffer capacity is initially 32 bytes, though its size increases if necessary.
 
+                    mBitmap.compress(Bitmap.CompressFormat.PNG,90,bytes)
+                    /**
+                     * Write a compressed version of the bitmap to the specified outputstream.
+                     * If this returns true, the bitmap can be reconstructed by passing a
+                     * corresponding inputstream to BitmapFactory.decodeStream(). Note: not
+                     * all Formats support all bitmap configs directly, so it is possible that
+                     * the returned bitmap from BitmapFactory could be in a different bitdepth,
+                     * and/or may have lost per-pixel alpha (e.g. JPEG only supports opaque
+                     * pixels).
+                     *
+                     * @param format   The format of the compressed image
+                     * @param quality  Hint to the compressor, 0-100. 0 meaning compress for
+                     *                 small size, 100 meaning compress for max quality. Some
+                     *                 formats, like PNG which is lossless, will ignore the
+                     *                 quality setting
+                     * @param stream   The outputstream to write the compressed data.
+                     * @return true if successfully compressed to the specified stream.
+                     */
                     val file = File(externalCacheDir?.absoluteFile.toString()
                                 + File.separator + "DrawingApp_" + System.currentTimeMillis()/1000 + ".png")
+                    // Here the Environment : Provides access to environment variables.
+                    // getExternalStorageDirectory : returns the primary shared/external storage directory.
+                    // absoluteFile : Returns the absolute form of this abstract pathname.
+                    // File.separator : The system-dependent default name-separator character. This string contains a single character.
 
-                    val fileOutput = FileOutputStream(file)
-                    fileOutput.write(bytes.toByteArray())
-                    fileOutput.close()
+                    val fileOutput = FileOutputStream(file) // Creates a file output stream to write to the file represented by the specified object.
+                    fileOutput.write(bytes.toByteArray())  // Writes bytes from the specified byte array to this file output stream.
+                    fileOutput.close() // Closes this file output stream and releases any system resources associated with this stream. This file output stream may no longer be used for writing bytes.
 
-                    result = file.absolutePath
-
+                    result = file.absolutePath // The file absolute path is return as a result.
+                    //We switch from io to ui thread to show a toast
                     runOnUiThread {
                         cancelProgressBar()
                         if(result.isNotEmpty()){
@@ -239,13 +326,22 @@ class MainActivity : AppCompatActivity() {
         return result
     }
 
+    /**
+     * Method is used to show the Custom Progress Dialog.
+     */
     private fun showProgressBar(){
+        /*Set the screen content from a layout resource.
+      The resource will be inflated, adding all top-level views to the screen.*/
         customProgressDialog = Dialog(this)
 
         customProgressDialog?.setContentView(R.layout.dialog_coustom_progress)
+        //Start the dialog and display it on screen.
         customProgressDialog?.show()
     }
 
+    /**
+     * This function is used to dismiss the progress dialog if it is visible to user.
+     */
     private fun cancelProgressBar(){
         if (customProgressDialog != null){
             customProgressDialog?.dismiss()
@@ -255,13 +351,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shareImage(result: String){
+        /*MediaScannerConnection provides a way for applications to pass a
+       newly created or downloaded media file to the media scanner service.
+       The media scanner service will read metadata from the file and add
+       the file to the media content provider.
+       The MediaScannerConnectionClient provides an interface for the
+       media scanner service to return the Uri for a newly scanned file
+       to the client of the MediaScannerConnection class.*/
+
+
+        /*scanFile is used to scan the file when the connection is established with MediaScanner.*/
         MediaScannerConnection.scanFile(this, arrayOf(result),null){
             path, uri ->
+            // This is used for sharing the image after it has being stored in the storage.
             val shareIntent = Intent()
             shareIntent.action = Intent.ACTION_SEND
             shareIntent.putExtra(Intent.EXTRA_STREAM,uri)
-            shareIntent.type = "image/png"
+            // A content: URI holding a stream of data associated with the Intent, used to supply the data being sent.
+            shareIntent.type = "image/png"// The MIME type of the data being handled by this intent.
             startActivity(Intent.createChooser(shareIntent,"Share"))
+            // Activity Action: Display an activity chooser,
+            // allowing the user to pick what they want to before proceeding.
+            // This can be used as an alternative to the standard activity picker
+            // that is displayed by the system when you try to start an activity with multiple possible matches,
+            // with these differences in behavior:
         }
     }
 }
